@@ -7,14 +7,14 @@
 **/
 
 .headerlogo img {
-    padding: $spacer;
+    padding: $spacer 0;
 }
 
 /**
 * Block Width
 **/
 
-@media screen and (min-width: 991px) {
+@media screen and (min-width: 1200px) {
     #region-main.has-blocks {
         width: calc(100% - #{$blockwidthfordson});
     }
@@ -23,10 +23,32 @@
     }
 }
 
-@media screen and (min-width: 991px) {
+@media screen and (min-width: 1200px) {
     [data-region="blocks-column"] {
         width: calc(#{$blockwidthfordson} - 30px);
     }
+}
+
+// Dashboard display items in column on sidebar position - Recently Accessed items and other one-row blocks will display as a column instead of a swipe.
+#page-my-index #block-region-side-pre .dashboard-card-deck.one-row {
+    flex-flow: column;
+    overflow-x: auto;
+}
+#page-my-index #block-region-side-pre .block-recentlyaccesseditems .course-info-container {
+    padding: 0;
+}
+
+// Dashboard fix rounded course image to be consistent with card view
+.block-myoverview .summaryimage.rounded-circle {
+    border-radius: 0%!important;
+}
+
+#page-my-index .btn-outline-secondary, #page-my-index .dropdown-item.active, .dropdown-item:active {
+    color: inherit;
+}
+
+#page-my-index [data-region="course-events-container"] {
+    padding: 1rem;
 }
 
 // Alerts
@@ -72,7 +94,8 @@ body#page-login-index, body#page-login-signup{
 }
 
 .row.signin {
-    margin: 2rem 0;
+    position: relative;
+    z-index: 1;
 }
 
 .fpcustomtext {
@@ -83,7 +106,6 @@ body#page-login-index, body#page-login-signup{
 
 div#fordsonlogin {
     background-color: $card-bg;
-    height: 100%;
 }
 
 .fpinstructions {
@@ -139,7 +161,10 @@ div#fordsonlogin {
 
 #page-login-index #page-wrapper {
     padding-bottom: 0;
-    min-height: 100%;
+}
+
+#page-my-index {
+    background-color: $body-bg;
 }
 
 /* Editing Block Columns */
@@ -321,6 +346,65 @@ a.right.carousel-control .fa-chevron-right {
     right: 10px;
     bottom: 40%;
 }
+
+/* Login Page Slideshow */
+.loginslideshow .slide1image,
+.loginslideshow .slide2image,
+.loginslideshow .slide3image {
+    height: 100%;
+}
+
+.loginslideshow div#fordsoncarousel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.loginslideshow .carousel-inner {
+    height: 100%;
+}
+
+.loginslideshow .carousel-item {
+    height: 100%;
+}
+
+ .carousel-control {
+    display: none;
+}
+
+.customloginspacer {
+    height: $slideshowspacer;
+}
+
+/* FIX for carousel fade. */
+.carousel.slide.carousel-fade .carousel-item {
+ opacity: 0;
+ transition-duration: .6s;
+ transition-property: opacity;
+}
+
+.carousel.slide.carousel-fade  .carousel-item.active,
+.carousel.slide.carousel-fade  .carousel-item-next.carousel-item-left,
+.carousel.slide.carousel-fade  .carousel-item-prev.carousel-item-right {
+  opacity: 1;
+}
+
+.carousel.slide.carousel-fade .active.carousel-item-left,
+.carousel.slide.carousel-fade  .active.carousel-item-right {
+ opacity: 0;
+}
+
+.carousel.slide.carousel-fade  .carousel-item-next,
+.carousel.slide.carousel-fade .carousel-item-prev,
+.carousel.slide.carousel-fade .carousel-item.active,
+.carousel.slide.carousel-fade .active.carousel-item-left,
+.carousel.slide.carousel-fade  .active.carousel-item-prev {
+ transform: translateX(0);
+ transform: translate3d(0, 0, 0);
+}
+
 
 
 /* Enhanced Homepage */
@@ -875,6 +959,11 @@ ul.teacherscourseview {
     margin: 0 .25rem;
 }
 
+.region_main_settings_menu_proxy {
+    background-color: transparent;
+}
+
+// Navbar Styling
 .navbar-nav .coursecontrols .nav-item + .nav-item {
     margin-left: .25rem;
 }
@@ -882,6 +971,62 @@ ul.teacherscourseview {
 .navbar {
     background-color: $topnavbarbg;
 }
+
+// FHS Navbar
+.navbar-fhs {
+  .navbar-brand {
+    color: $navbar-fhs-active-color;
+
+    @include hover-focus {
+      color: $navbar-fhs-active-color;
+    }
+  }
+
+  .navbar-nav {
+    .nav-link {
+      color: $navbar-fhs-color;
+
+      @include hover-focus {
+        color: $navbar-fhs-hover-color;
+      }
+
+      &.disabled {
+        color: $navbar-fhs-disabled-color;
+      }
+    }
+
+    .show > .nav-link,
+    .active > .nav-link,
+    .nav-link.show,
+    .nav-link.active {
+      color: $navbar-fhs-active-color;
+    }
+  }
+
+  .navbar-toggler {
+    color: $navbar-fhs-color;
+    border-color: $navbar-fhs-toggler-border-color;
+  }
+
+  .navbar-toggler-icon {
+    background-image: $navbar-fhs-toggler-icon-bg;
+  }
+
+  .navbar-text {
+    color: $navbar-fhs-color;
+    a {
+      color: $navbar-fhs-active-color;
+
+      @include hover-focus {
+        color: $navbar-fhs-active-color;
+      }
+    }
+  }
+}
+span.userbutton {
+    color: $navbar-fhs-color;
+}
+
 
 #nav-drawer.closed {
     left: -($drawer-width + $drawer-offscreen-gutter);
@@ -912,7 +1057,12 @@ ul.teacherscourseview {
 width: $activityiconsize;
 }
 
-#page-course-editdefaultcompletion .modules img.m-r-1.m-b-1 {
+#page-course-editdefaultcompletion .modules.mb-1 img {
+    height: $activityiconsize;
+    width: $activityiconsize;
+}
+
+.block_recentlyaccesseditems img.icon {
     height: $activityiconsize;
     width: $activityiconsize;
 }
@@ -942,14 +1092,6 @@ width: $activityiconsize;
 .mycoursecompletion {
     float: left;
     padding-right: 1rem;
-}
-
-.mycoursecompletiontile2 .progress-doughnut {
-    background-color: #fff;
-}
-.mycoursecompletiontile4 .progress-doughnut {
-    background-color: #fff;
-    box-shadow: 0 0 0px 7px rgba(112, 2, 169, 0.5);
 }
 
 .mycoursecompletiontile2 {
@@ -988,6 +1130,17 @@ width: $activityiconsize;
 .progress-chart-container .no-progress .icon {
     top: 50%;
     left: 40%;
+}
+.progress-bar .fhsprogresstest {
+    width: max-content;
+    margin-left: 1rem;
+}
+
+.progress.fordsonsinglepage {
+    float: right;
+    height: 7px;
+    border: 0;
+    width: 25%;
 }
 
 /**
@@ -1061,83 +1214,6 @@ div#page.container-fluid {
     overflow: auto;
 }
 
-@media screen and (min-width: 576px) {
-    /* Breadcrumbs */
-    ul.breadcrumb {
-        display: inline-block;
-        overflow: hidden;
-        margin:0px;
-        padding:0px;
-        background: none;
-    }
-    ul.breadcrumb a {
-        color: $breadcrumb-text-color;
-    }
-    ul.breadcrumb li {
-        text-decoration: none;
-        outline: none;
-        display: block;
-        float: left;
-        font-size: 14px;
-        line-height: 36px;
-        color: $breadcrumb-text-color;
-        padding: 0 15px 0 30px;
-        background-color: $breadcrumb-bg;
-        position: relative;
-    }
-    ul.breadcrumb li:first-child {
-        padding-left: 25px;
-        border-radius: 5px 0 0 5px;
-    }
-    ul.breadcrumb li:first-child:before {
-        left: 14px;
-    }
-    ul.breadcrumb li:last-child {
-        border-radius: 0 5px 5px 0;
-        padding-right: 20px;
-    }
-    /*hover/active styles*/
-    ul.breadcrumb li.active, .breadcrumb li:hover{
-        background-color: $breadcrumb-bg-hover;
-    }
-    ul.breadcrumb li.active:after, .breadcrumb li:hover:after {
-        background-color: $breadcrumb-bg-hover;
-    }
-    ul.breadcrumb li:after {
-        content: '';
-        position: absolute;
-        top: 0; 
-        right: -18px;
-        width: 36px; 
-        height: 36px;
-        transform: scale(0.707) rotate(45deg);
-        z-index: 1;
-        background-color: $breadcrumb-bg;
-        box-shadow:
-        2px -2px 0 2px $card-bg, 
-        3px -3px 0 2px $card-bg;
-        border-radius: 0 5px 0 50px;
-    }
-    ul.breadcrumb li:last-child:after {
-        content: none;
-    }
-    .breadcrumb-item + .breadcrumb-item::before {
-        display: inline-block;
-        padding: 0;
-        content: "";
-    }
-    .dir-rtl ul.breadcrumb li:after{
-        transform: scale(.707) rotate(315deg);
-        box-shadow: -3px -3px 0 1px $card-bg, -2px -3px 0 2px $card-bg;
-    }
-}
-
-@media screen and (max-width: 576px) {
-    .breadcrumb {
-        background-color:transparent;
-    }
-}
-
 /**
 * Collapsed Topic Format Fixes
 **/
@@ -1167,10 +1243,86 @@ audio.mediaplugin_html5audio {
     position: initial;
 }
 
+
+//Moodle 3.6 Fixes
+#page-login-index #page {
+    background-color: transparent;
+}
+
+//Moodle 3.7 Fixes
+#page-message-index #region-main {
+    height: auto;
+}
+
+.custom-select {
+    width: auto;
+}
+
 // Navbar Color switch
 nav.fixed-top.navbar.navbar-teacher.navbar-expand.moodle-has-zindex {
     background-color: $teachernavbarcolor;
 }
 nav.fixed-top.navbar.navbar-student.navbar-expand.moodle-has-zindex {
     background-color: $studentnavbarcolor;
+}
+
+// Fordson CourseFormat Enhancements.  Please download and install https://moodle.org/plugins/format_collapsibletopics and turn on the special features for the Fordson Course Format in theme settings.
+body.editing .course-content ul.collapsibletopics a.sectiontoggle {
+    float: unset;
+}
+body.editing .course-content ul.collapsibletopics a.sectiontoggle[aria-expanded="true"] {
+    background-position: left 55%;
+    padding-right: 1rem;
+    padding-left: 1rem;
+}
+
+body.editing .course-content ul.collapsibletopics a.sectiontoggle[aria-expanded="false"] {
+    background-position: left 55%;
+    padding-right: 1rem;
+    padding-left: 1rem;
+}
+
+.fordsoncourseformat h3.sectionname {
+    background-color: $gray-200;
+    padding: 1rem;
+}
+li#section-0.fordsoncourseformat h3.sectionname {
+    background-color: initial;
+    padding: 0;
+}
+
+.course-content ul li.section.main.fordsoncourseformat {
+    border-bottom: 0;
+}
+
+.course-content ul.collapsibletopics .fordsoncourseformat .content .summarytext {
+    padding: 1rem;
+    margin: 0;
+}
+
+body.editing ul.collapsibletopics .fordsoncourseformat .content .summarytext {
+    margin: 0;
+    padding: 1rem;
+}
+
+.fordsoncourseformat .progress {
+    background-color: $gray-500;
+}
+
+.fordsoncourseformat .fhscoursebutton {
+    display: block;
+    text-align: right;
+}
+
+.course-content ul.collapsibletopics li.section.fordsoncourseformat .content {
+    padding: 0;
+}
+
+.course-content ul.collapsibletopics a.sectiontoggle {
+    font-size: 1.2rem;
+}
+
+.fordsoncourseformat ul.section {
+    margin: 0;
+    padding: 1rem;
 }

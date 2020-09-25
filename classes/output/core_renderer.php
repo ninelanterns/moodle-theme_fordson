@@ -37,7 +37,7 @@ use pix_icon;
 use theme_config;
 defined('MOODLE_INTERNAL') || die;
 require_once ($CFG->dirroot . "/course/renderer.php");
-require_once ($CFG->libdir . '/coursecatlib.php');
+
 /**
  * Renderers to align Moodle's HTML with that expected by Bootstrap
  *
@@ -45,6 +45,7 @@ require_once ($CFG->libdir . '/coursecatlib.php');
  * @copyright  2012 Bas Brands, www.basbrands.nl
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+
 class core_renderer extends \theme_boost\output\core_renderer {
     /**
      * Wrapper for header elements.
@@ -95,6 +96,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
         }
         require_once ($CFG->libdir . '/filestorage/file_storage.php');
         require_once ($CFG->dirroot . '/course/lib.php');
+
         $fs = get_file_storage();
         $context = context_course::instance($COURSE->id);
         $files = $fs->get_area_files($context->id, 'course', 'overviewfiles', false, 'filename', false);
@@ -173,6 +175,18 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $html .= html_writer::end_div();
         return $html;
     }
+
+    public function get_generated_image_for_id($id) {
+        // See if user uploaded a custom header background to the theme.
+        $headerbg = $this->page->theme->setting_file_url('headerdefaultimage', 'headerdefaultimage');
+        if (isset($headerbg)) {
+            return $headerbg;
+        } else {
+            // Use the default theme image when no course image is detected.
+            return $this->image_url('noimg', 'theme')->out();
+        }
+    }
+
     public function edit_button_fhs() {
         global $SITE, $PAGE, $USER, $CFG, $COURSE;
         if (!$PAGE->user_allowed_editing() || $COURSE->id <= 1) {
@@ -270,6 +284,32 @@ class core_renderer extends \theme_boost\output\core_renderer {
      *
      * This renderer is needed to enable the Bootstrap style navigation.
     */
+
+    protected static function timeaccesscompare($a, $b) {
+            // Timeaccess is lastaccess entry and timestart an enrol entry.
+            if ((!empty($a->timeaccess)) && (!empty($b->timeaccess))) {
+                // Both last access.
+                if ($a->timeaccess == $b->timeaccess) {
+                    return 0;
+                }
+                return ($a->timeaccess > $b->timeaccess) ? -1 : 1;
+            }
+            else if ((!empty($a->timestart)) && (!empty($b->timestart))) {
+                // Both enrol.
+                if ($a->timestart == $b->timestart) {
+                    return 0;
+                }
+                return ($a->timestart > $b->timestart) ? -1 : 1;
+            }
+            // Must be comparing an enrol with a last access.
+            // -1 is to say that 'a' comes before 'b'.
+            if (!empty($a->timestart)) {
+                // 'a' is the enrol entry.
+                return -1;
+            }
+            // 'b' must be the enrol entry.
+            return 1;
+        }
     public function fordson_custom_menu() {
         global $CFG, $COURSE, $PAGE, $OUTPUT;
         $context = $this->page->context;
@@ -337,6 +377,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                 $thisbranchtitle = get_string('thismycourses', 'theme_fordson');
                 $homebranchtitle = get_string('homemycourses', 'theme_fordson');
             }
+            
             $branchlabel = $branchtitle;
             $branchurl = new moodle_url('/my/index.php');
             $branchsort = 10000;
@@ -345,7 +386,68 @@ class core_renderer extends \theme_boost\output\core_renderer {
             $dashurl = new moodle_url("/my");
             $dashtitle = $dashlabel;
             $branch->add($dashlabel, $dashurl, $dashtitle);
+           
             if ($courses = enrol_get_my_courses(NULL, 'fullname ASC')) {
+                if (theme_fordson_get_setting('frontpagemycoursessorting')) {
+                $courses = enrol_get_my_courses(null, 'sortorder ASC');
+                $nomycourses = '<div class="alert alert-info alert-block">' . get_string('nomycourses', 'theme_fordson') . '</div>';
+                if ($courses) {
+                    // We have something to work with.  Get the last accessed information for the user and populate.
+                    global $DB, $USER;
+                    $lastaccess = $DB->get_records('user_lastaccess', array('userid' => $USER->id) , '', 'courseid, timeaccess');
+                    if ($lastaccess) {
+                        foreach ($courses as $course) {
+                            if (!empty($lastaccess[$course->id])) {
+                                $course->timeaccess = $lastaccess[$course->id]->timeaccess;
+                            }
+                        }
+                    }
+                    // Determine if we need to query the enrolment and user enrolment tables.
+                    $enrolquery = false;
+                    foreach ($courses as $course) {
+                        if (empty($course->timeaccess)) {
+                            $enrolquery = true;
+                            break;
+                        }
+                    }
+                    if ($enrolquery) {
+                        // We do.
+                        $params = array(
+                            'userid' => $USER->id
+                        );
+                        $sql = "SELECT ue.id, e.courseid, ue.timestart
+                            FROM {enrol} e
+                            JOIN {user_enrolments} ue ON (ue.enrolid = e.id AND ue.userid = :userid)";
+                        $enrolments = $DB->get_records_sql($sql, $params, 0, 0);
+                        if ($enrolments) {
+                            // Sort out any multiple enrolments on the same course.
+                            $userenrolments = array();
+                            foreach ($enrolments as $enrolment) {
+                                if (!empty($userenrolments[$enrolment->courseid])) {
+                                    if ($userenrolments[$enrolment->courseid] < $enrolment->timestart) {
+                                        // Replace.
+                                        $userenrolments[$enrolment->courseid] = $enrolment->timestart;
+                                    }
+                                }
+                                else {
+                                    $userenrolments[$enrolment->courseid] = $enrolment->timestart;
+                                }
+                            }
+                            // We don't need to worry about timeend etc. as our course list will be valid for the user from above.
+                            foreach ($courses as $course) {
+                                if (empty($course->timeaccess)) {
+                                    $course->timestart = $userenrolments[$course->id];
+                                }
+                            }
+                        }
+                    }
+                    uasort($courses, array($this,'timeaccesscompare'));
+                }
+                else {
+                    return $nomycourses;
+                }
+                $sortorder = $lastaccess;
+            }
                 foreach ($courses as $course) {
                     if ($course->visible) {
                         $branch->add(format_string($course->fullname) , new moodle_url('/course/view.php?id=' . $course->id) , format_string($course->shortname));
@@ -355,7 +457,8 @@ class core_renderer extends \theme_boost\output\core_renderer {
             else {
                 $noenrolments = get_string('noenrolments', 'theme_fordson');
                 $branch->add('<em>' . $noenrolments . '</em>', new moodle_url('/') , $noenrolments);
-            }
+            } 
+
             $hasdisplaythiscourse = (empty($this->page->theme->settings->displaythiscourse)) ? false : $this->page->theme->settings->displaythiscourse;
             $sections = $this->generate_sections_and_activities($COURSE);
             if ($sections && $COURSE->id > 1 && $hasdisplaythiscourse) {
@@ -578,6 +681,14 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $nav6buttontext = (empty($PAGE->theme->settings->nav6buttontext)) ? false : format_string($PAGE->theme->settings->nav6buttontext);
         $nav7buttontext = (empty($PAGE->theme->settings->nav7buttontext)) ? false : format_string($PAGE->theme->settings->nav7buttontext);
         $nav8buttontext = (empty($PAGE->theme->settings->nav8buttontext)) ? false : format_string($PAGE->theme->settings->nav8buttontext);
+        $nav1target = (empty($PAGE->theme->settings->nav1target)) ? false : $PAGE->theme->settings->nav1target;
+        $nav2target = (empty($PAGE->theme->settings->nav2target)) ? false : $PAGE->theme->settings->nav2target;
+        $nav3target = (empty($PAGE->theme->settings->nav3target)) ? false : $PAGE->theme->settings->nav3target;
+        $nav4target = (empty($PAGE->theme->settings->nav4target)) ? false : $PAGE->theme->settings->nav4target;
+        $nav5target = (empty($PAGE->theme->settings->nav5target)) ? false : $PAGE->theme->settings->nav5target;
+        $nav6target = (empty($PAGE->theme->settings->nav6target)) ? false : $PAGE->theme->settings->nav6target;
+        $nav7target = (empty($PAGE->theme->settings->nav7target)) ? false : $PAGE->theme->settings->nav7target;
+        $nav8target = (empty($PAGE->theme->settings->nav8target)) ? false : $PAGE->theme->settings->nav8target;
         $fptextbox = (empty($PAGE->theme->settings->fptextbox && isloggedin())) ? false : format_text($PAGE->theme->settings->fptextbox, FORMAT_HTML, array(
             'noclean' => true
         ));
@@ -653,14 +764,21 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $marketing9buttonurl = (empty($PAGE->theme->settings->marketing9buttonurl)) ? false : $PAGE->theme->settings->marketing9buttonurl;
         $marketing9target = (empty($PAGE->theme->settings->marketing9target)) ? false : $PAGE->theme->settings->marketing9target;
         $marketing9image = (empty($PAGE->theme->settings->marketing9image)) ? false : 'marketing9image';
-        //$logintoken = \core\session\manager::get_login_token();
-        if(method_exists('\core\session\manager', 'get_login_token')) {
+        /*if (method_exists(new \core\session\manager, 'get_login_token')) {
             $logintoken = \core\session\manager::get_login_token();
         } else {
-            $logintoken = '';
-        }
+            $logintoken = false;
+        }*/
+        /*if( method_exists ( "\core\session\manager", "get_login_token" ) ){
+            $logintoken = s(\core\session\manager::get_login_token());
+            echo '<input type="hidden" name="logintoken" value="' . $logintoken . '" />';
+        } else {
+            $logintoken = false;
+        }*/
 
-        $fp_wonderboxcontext = ['logintoken' => $logintoken, 'hasfptextbox' => (!empty($PAGE->theme->settings->fptextbox && isloggedin())) , 'fptextbox' => $fptextbox, 'hasslidetextbox' => (!empty($PAGE->theme->settings->slidetextbox && isloggedin())) , 'slidetextbox' => $slidetextbox, 'hasfptextboxlogout' => !isloggedin() , 'fptextboxlogout' => $fptextboxlogout, 'hasshowloginform' => $PAGE->theme->settings->showloginform, 'hasalert' => (!empty($PAGE->theme->settings->alertbox && isloggedin())) , 'alertbox' => $alertbox, 'hasmarkettiles' => ($hasmarketing1 || $hasmarketing2 || $hasmarketing3 || $hasmarketing4 || $hasmarketing5 || $hasmarketing6) ? true : false, 'markettiles' => array(
+        $logintoken = \core\session\manager::get_login_token();
+
+        $fp_wonderboxcontext = ['logintoken' => $logintoken, 'hasfptextbox' => (!empty($PAGE->theme->settings->fptextbox && isloggedin())) , 'fptextbox' => $fptextbox, 'hasslidetextbox' => (!empty($PAGE->theme->settings->slidetextbox && isloggedin())) , 'slidetextbox' => $slidetextbox, 'hasfptextboxlogout' => !isloggedin() , 'fptextboxlogout' => $fptextboxlogout, 'hasshowloginform' => $PAGE->theme->settings->showloginform, 'alertbox' => $alertbox, 'hasmarkettiles' => ($hasmarketing1 || $hasmarketing2 || $hasmarketing3 || $hasmarketing4 || $hasmarketing5 || $hasmarketing6) ? true : false, 'markettiles' => array(
             array(
                 'hastile' => $hasmarketing1,
                 'tileimage' => $marketing1image,
@@ -731,49 +849,57 @@ class core_renderer extends \theme_boost\output\core_renderer {
                 'hasicon' => $hasnav1icon,
                 'linkicon' => $hasnav1icon,
                 'link' => $nav1buttonurl,
-                'linktext' => $nav1buttontext
+                'linktext' => $nav1buttontext,
+                'linktarget' => $nav1target
             ) ,
             array(
                 'hasicon' => $hasnav2icon,
                 'linkicon' => $hasnav2icon,
                 'link' => $nav2buttonurl,
-                'linktext' => $nav2buttontext
+                'linktext' => $nav2buttontext,
+                'linktarget' => $nav2target
             ) ,
             array(
                 'hasicon' => $hasnav3icon,
                 'linkicon' => $hasnav3icon,
                 'link' => $nav3buttonurl,
-                'linktext' => $nav3buttontext
+                'linktext' => $nav3buttontext,
+                'linktarget' => $nav3target
             ) ,
             array(
                 'hasicon' => $hasnav4icon,
                 'linkicon' => $hasnav4icon,
                 'link' => $nav4buttonurl,
-                'linktext' => $nav4buttontext
+                'linktext' => $nav4buttontext,
+                'linktarget' => $nav4target
             ) ,
             array(
                 'hasicon' => $hasnav5icon,
                 'linkicon' => $hasnav5icon,
                 'link' => $nav5buttonurl,
-                'linktext' => $nav5buttontext
+                'linktext' => $nav5buttontext,
+                'linktarget' => $nav5target
             ) ,
             array(
                 'hasicon' => $hasnav6icon,
                 'linkicon' => $hasnav6icon,
                 'link' => $nav6buttonurl,
-                'linktext' => $nav6buttontext
+                'linktext' => $nav6buttontext,
+                'linktarget' => $nav6target
             ) ,
             array(
                 'hasicon' => $hasnav7icon,
                 'linkicon' => $hasnav7icon,
                 'link' => $nav7buttonurl,
-                'linktext' => $nav7buttontext
+                'linktext' => $nav7buttontext,
+                'linktarget' => $nav7target
             ) ,
             array(
                 'hasicon' => $hasnav8icon,
                 'linkicon' => $hasnav8icon,
                 'link' => $nav8buttonurl,
-                'linktext' => $nav8buttontext
+                'linktext' => $nav8buttontext,
+                'linktarget' => $nav8target
             ) ,
         ) , 'fpcreateicon' => array(
             array(
@@ -1046,14 +1172,12 @@ class core_renderer extends \theme_boost\output\core_renderer {
                 $togglebuttonstudent = get_string('studentdashbutton', 'theme_fordson');
             }
         }
-        $haseditcog = $PAGE->theme->settings->courseeditingcog;
-        $editcog = html_writer::div($this->context_header_settings_menu() , 'pull-xs-right context-header-settings-menu');
         $siteadmintitle = get_string('siteadminquicklink', 'theme_fordson');
         $siteadminurl = new moodle_url('/admin/search.php');
-        $hasadminlink = is_siteadmin();
+        $hasadminlink = has_capability('moodle/site:configview', $context);
         $course = $this->page->course;
         // Send to template.
-        $dashmenu = ['showincourseonly' => $showincourseonly, 'togglebutton' => $togglebutton, 'togglebuttonstudent' => $togglebuttonstudent, 'hasteacherdash' => $hasteacherdash, 'hasstudentdash' => $hasstudentdash, 'haspermission' => $haspermission, 'hasadminlink' => $hasadminlink, 'siteadmintitle' => $siteadmintitle, 'siteadminurl' => $siteadminurl, 'haseditcog' => $haseditcog, 'editcog' => $editcog, ];
+        $dashmenu = ['showincourseonly' => $showincourseonly, 'togglebutton' => $togglebutton, 'togglebuttonstudent' => $togglebuttonstudent, 'hasteacherdash' => $hasteacherdash, 'hasstudentdash' => $hasstudentdash, 'haspermission' => $haspermission, 'hasadminlink' => $hasadminlink, 'siteadmintitle' => $siteadmintitle, 'siteadminurl' => $siteadminurl, ];
         // Attach easy enrollment links if active.
         if ($globalhaseasyenrollment && $coursehaseasyenrollment) {
             $dashmenu['dashmenu'][] = array(
@@ -1064,6 +1188,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
         }
         return $this->render_from_template('theme_fordson/teacherdashmenu', $dashmenu);
     }
+
     public function teacherdash() {
         global $PAGE, $COURSE, $CFG, $DB, $OUTPUT, $USER;
         require_once ($CFG->dirroot . '/completion/classes/progress.php');
@@ -1071,6 +1196,8 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $togglebuttonstudent = '';
         $hasteacherdash = '';
         $hasstudentdash = '';
+        $haseditcog = $PAGE->theme->settings->courseeditingcog;
+        $editcog = html_writer::div($this->context_header_settings_menu() , 'pull-xs-right context-header-settings-menu');
         if (isloggedin() && ISSET($COURSE->id) && $COURSE->id > 1) {
             $course = $this->page->course;
             $context = context_course::instance($course->id);
@@ -1127,6 +1254,10 @@ class core_renderer extends \theme_boost\output\core_renderer {
         }
         $gradestitle = get_string('gradebooksetup', 'grades');
         $gradeslink = new moodle_url('/grade/edit/tree/index.php', array(
+            'id' => $PAGE->course->id
+        ));
+        $gradebooktitle = get_string('gradebook', 'grades');
+        $gradebooklink = new moodle_url('/grade/report/grader/index.php', array(
             'id' => $PAGE->course->id
         ));
         $participantstitle = ($PAGE->theme->settings->studentdashboardtextbox == 1) ? false : get_string('participants', 'moodle');
@@ -1237,18 +1368,19 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $eventmonitoringlink = new moodle_url('/admin/tool/monitor/managerules.php', array(
             'courseid' => $PAGE->course->id
         ));
-        // Student Dash.
+
+        // Student Dash
         if (\core_completion\progress::get_course_progress_percentage($PAGE->course)) {
             $comppc = \core_completion\progress::get_course_progress_percentage($PAGE->course);
             $comppercent = number_format($comppc, 0);
-            $hasprogress = true;
         }
         else {
             $comppercent = 0;
-            $hasprogress = false;
         }
-        $progresschartcontext = ['hasprogress' => $hasprogress, 'progress' => $comppercent];
-        $progresschart = $this->render_from_template('block_myoverview/progress-chart', $progresschartcontext);
+
+        $progresschartcontext = ['progress' => $comppercent];
+        $progress = $this->render_from_template('theme_fordson/progress-bar', $progresschartcontext);
+
         $gradeslinkstudent = new moodle_url('/grade/report/user/index.php', array(
             'id' => $PAGE->course->id
         ));
@@ -1269,6 +1401,16 @@ class core_renderer extends \theme_boost\output\core_renderer {
         );
         $courseteachers = array();
         $courseother = array();
+
+        $showonlygroupteachers = !empty(groups_get_all_groups($course->id, $USER->id)) && $PAGE->theme->settings->showonlygroupteachers == 1;
+        if ($showonlygroupteachers) {
+            $groupids = array();
+            $studentgroups = groups_get_all_groups($course->id, $USER->id);
+            foreach ($studentgroups as $grp) {
+                $groupids[] = $grp->id;
+            }
+        }
+
         // If you created custom roles, please change the shortname value to match the name of your role.  This is teacher.
         $role = $DB->get_record('role', array(
             'shortname' => 'editingteacher'
@@ -1279,6 +1421,19 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     u.firstnamephonetic, u.lastnamephonetic, u.email, u.picture, u.maildisplay,
                     u.imagealt');
             foreach ($teachers as $staff) {
+                if ($showonlygroupteachers) {
+                    $staffgroups = groups_get_all_groups($course->id, $staff->id);
+                    $found = false;
+                    foreach ($staffgroups as $grp) {
+                        if (in_array($grp->id, $groupids)) {
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        continue;
+                    }
+                }
                 $picture = $OUTPUT->user_picture($staff, array(
                     'size' => 50
                 ));
@@ -1307,6 +1462,19 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     u.firstnamephonetic, u.lastnamephonetic, u.email, u.picture, u.maildisplay,
                     u.imagealt');
             foreach ($teachers as $staff) {
+                if ($showonlygroupteachers) {
+                    $staffgroups = groups_get_all_groups($course->id, $staff->id);
+                    $found = false;
+                    foreach ($staffgroups as $grp) {
+                        if (in_array($grp->id, $groupids)) {
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        continue;
+                    }
+                }
                 $picture = $OUTPUT->user_picture($staff, array(
                     'size' => 50
                 ));
@@ -1327,7 +1495,6 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $activitylinkstitle = get_string('activitylinkstitle', 'theme_fordson');
         $activitylinkstitle_desc = get_string('activitylinkstitle_desc', 'theme_fordson');
         $mygradestext = get_string('mygradestext', 'theme_fordson');
-        $myprogresstext = get_string('myprogresstext', 'theme_fordson');
         $studentcoursemanage = get_string('courseadministration', 'moodle');
         // Permissionchecks for teacher access.
         $hasquestionpermission = has_capability('moodle/question:add', $context);
@@ -1339,148 +1506,196 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $hascourseadminshow = $PAGE->theme->settings->showcourseadminstudents == 1;
         $hascompetency = get_config('core_competency', 'enabled');
         // Send to template.
-        $dashlinks = ['showincourseonly' => $showincourseonly, 'haspermission' => $haspermission, 'courseactivities' => $courseactivities, 'togglebutton' => $togglebutton, 'togglebuttonstudent' => $togglebuttonstudent, 'userlinkstitle' => $userlinks, 'userlinksdesc' => $userlinksdesc, 'qbanktitle' => $qbank, 'activitylinkstitle' => $activitylinkstitle, 'activitylinkstitle_desc' => $activitylinkstitle_desc, 'qbankdesc' => $qbankdesc, 'badgestitle' => $badges, 'badgesdesc' => $badgesdesc, 'coursemanagetitle' => $coursemanage, 'coursemanagedesc' => $coursemanagedesc, 'coursemanagementmessage' => $coursemanagementmessage, 'progresschart' => $progresschart, 'gradeslink' => $gradeslink, 'gradeslinkstudent' => $gradeslinkstudent, 'hascourseinfogroup' => $hascourseinfogroup, 'courseinfo' => $courseinfo, 'hascoursestaffgroup' => $hascoursestaff, 'courseteachers' => $courseteachers, 'courseother' => $courseother, 'myprogresstext' => $myprogresstext, 'mygradestext' => $mygradestext, 'studentdashboardtextbox' => $studentdashboardtextbox, 'hasteacherdash' => $hasteacherdash, 'teacherdash' => array(
-            'hasquestionpermission' => $hasquestionpermission,
-            'hasbadgepermission' => $hasbadgepermission,
-            'hascoursepermission' => $hascoursepermission,
-            'hasuserpermission' => $hasuserpermission
-        ) , 'hasstudentdash' => $hasstudentdash, 'hasgradebookshow' => $hasgradebookshow, 'hascompletionshow' => $hascompletionshow, 'studentcourseadminlink' => $courseadminlink, 'studentcoursemanage' => $studentcoursemanage, 'hascourseadminshow' => $hascourseadminshow, 'hascompetency' => $hascompetency, 'competencytitle' => $competencytitle, 'competencyurl' => $competencyurl, 'dashlinks' => array(
-            array(
-                'hasuserlinks' => $gradestitle,
-                'title' => $gradestitle,
-                'url' => $gradeslink
+        $haseditcog = $PAGE->theme->settings->courseeditingcog;
+        $editcog = html_writer::div($this->context_header_settings_menu() , 'pull-xs-right context-header-settings-menu');
+        $dashlinks = [
+            'showincourseonly' => $showincourseonly, 
+            'haspermission' => $haspermission, 
+            'courseactivities' => $courseactivities, 
+            'togglebutton' => $togglebutton, 
+            'togglebuttonstudent' => $togglebuttonstudent, 
+            'userlinkstitle' => $userlinks, 
+            'userlinksdesc' => $userlinksdesc, 
+            'qbanktitle' => $qbank, 
+            'activitylinkstitle' => $activitylinkstitle, 
+            'activitylinkstitle_desc' => $activitylinkstitle_desc, 
+            'qbankdesc' => $qbankdesc, 
+            'badgestitle' => $badges, 
+            'badgesdesc' => $badgesdesc, 
+            'coursemanagetitle' => $coursemanage, 
+            'coursemanagedesc' => $coursemanagedesc, 
+            'coursemanagementmessage' => $coursemanagementmessage, 
+            'progress' => $progress, 
+            'gradeslink' => $gradeslink, 
+            'gradeslinkstudent' => $gradeslinkstudent, 
+            'hascourseinfogroup' => $hascourseinfogroup, 
+            'courseinfo' => $courseinfo, 
+            'hascoursestaffgroup' => $hascoursestaff, 
+            'courseteachers' => $courseteachers, 
+            'courseother' => $courseother, 
+            'mygradestext' => $mygradestext, 
+            'studentdashboardtextbox' => $studentdashboardtextbox, 
+            'hasteacherdash' => $hasteacherdash, 
+            'haseditcog'=>$haseditcog, 
+            'editcog'=> $editcog, 
+            'teacherdash' => array(
+                'hasquestionpermission' => $hasquestionpermission,
+                'hasbadgepermission' => $hasbadgepermission,
+                'hascoursepermission' => $hascoursepermission,
+                'hasuserpermission' => $hasuserpermission
+            ) , 
+            'hasstudentdash' => $hasstudentdash, 
+            'hasgradebookshow' => $hasgradebookshow, 
+            'hascompletionshow' => $hascompletionshow, 
+            'studentcourseadminlink' => $courseadminlink, 
+            'studentcoursemanage' => $studentcoursemanage, 
+            'hascourseadminshow' => $hascourseadminshow, 
+            'hascompetency' => $hascompetency, 
+            'competencytitle' => $competencytitle, 
+            'competencyurl' => $competencyurl, 
+            'dashlinks' => array(
+                array(
+                    'hasuserlinks' => $gradebooktitle,
+                    'title' => $gradebooktitle,
+                    'url' => $gradebooklink
+                ) ,
+                array(
+                    'hasuserlinks' => $participantstitle,
+                    'title' => $participantstitle,
+                    'url' => $participantslink
+                ) ,
+                array(
+                    'hasuserlinks' => $grouptitle,
+                    'title' => $grouptitle,
+                    'url' => $grouplink
+                ) ,
+                array(
+                    'hasuserlinks' => $enrolmethodtitle,
+                    'title' => $enrolmethodtitle,
+                    'url' => $enrolmethodlink
+                ) ,
+                array(
+                    'hasuserlinks' => $activitycompletiontitle,
+                    'title' => $activitycompletiontitle,
+                    'url' => $activitycompletionlink
+                ) ,
+                array(
+                    'hasuserlinks' => $completionreporttitle,
+                    'title' => $completionreporttitle,
+                    'url' => $completionreportlink
+                ) ,
+                array(
+                    'hasuserlinks' => $logstitle,
+                    'title' => $logstitle,
+                    'url' => $logslink
+                ) ,
+                array(
+                    'hasuserlinks' => $livelogstitle,
+                    'title' => $livelogstitle,
+                    'url' => $livelogslink
+                ) ,
+                array(
+                    'hasuserlinks' => $participationtitle,
+                    'title' => $participationtitle,
+                    'url' => $participationlink
+                ) ,
+                array(
+                    'hasuserlinks' => $activitytitle,
+                    'title' => $activitytitle,
+                    'url' => $activitylink
+                ) ,
+                array(
+                    'hasqbanklinks' => $qbanktitle,
+                    'title' => $qbanktitle,
+                    'url' => $qbanklink
+                ) ,
+                array(
+                    'hasqbanklinks' => $qcattitle,
+                    'title' => $qcattitle,
+                    'url' => $qcatlink
+                ) ,
+                array(
+                    'hasqbanklinks' => $qimporttitle,
+                    'title' => $qimporttitle,
+                    'url' => $qimportlink
+                ) ,
+                array(
+                    'hasqbanklinks' => $qexporttitle,
+                    'title' => $qexporttitle,
+                    'url' => $qexportlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $courseedittitle,
+                    'title' => $courseedittitle,
+                    'url' => $courseeditlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $gradestitle,
+                    'title' => $gradestitle,
+                    'url' => $gradeslink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $coursecompletiontitle,
+                    'title' => $coursecompletiontitle,
+                    'url' => $coursecompletionlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $hascompetency,
+                    'title' => $competencytitle,
+                    'url' => $competencyurl
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $courseadmintitle,
+                    'title' => $courseadmintitle,
+                    'url' => $courseadminlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $courseresettitle,
+                    'title' => $courseresettitle,
+                    'url' => $courseresetlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $coursebackuptitle,
+                    'title' => $coursebackuptitle,
+                    'url' => $coursebackuplink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $courserestoretitle,
+                    'title' => $courserestoretitle,
+                    'url' => $courserestorelink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $courseimporttitle,
+                    'title' => $courseimporttitle,
+                    'url' => $courseimportlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $recyclebintitle,
+                    'title' => $recyclebintitle,
+                    'url' => $recyclebinlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $filtertitle,
+                    'title' => $filtertitle,
+                    'url' => $filterlink
+                ) ,
+                array(
+                    'hascoursemanagelinks' => $eventmonitoringtitle,
+                    'title' => $eventmonitoringtitle,
+                    'url' => $eventmonitoringlink
+                ) ,
+                array(
+                    'hasbadgelinks' => $badgemanagetitle,
+                    'title' => $badgemanagetitle,
+                    'url' => $badgemanagelink
+                ) ,
+                array(
+                    'hasbadgelinks' => $badgeaddtitle,
+                    'title' => $badgeaddtitle,
+                    'url' => $badgeaddlink
+                ) ,
             ) ,
-            array(
-                'hasuserlinks' => $participantstitle,
-                'title' => $participantstitle,
-                'url' => $participantslink
-            ) ,
-            array(
-                'hasuserlinks' => $grouptitle,
-                'title' => $grouptitle,
-                'url' => $grouplink
-            ) ,
-            array(
-                'hasuserlinks' => $enrolmethodtitle,
-                'title' => $enrolmethodtitle,
-                'url' => $enrolmethodlink
-            ) ,
-            array(
-                'hasuserlinks' => $activitycompletiontitle,
-                'title' => $activitycompletiontitle,
-                'url' => $activitycompletionlink
-            ) ,
-            array(
-                'hasuserlinks' => $completionreporttitle,
-                'title' => $completionreporttitle,
-                'url' => $completionreportlink
-            ) ,
-            array(
-                'hasuserlinks' => $logstitle,
-                'title' => $logstitle,
-                'url' => $logslink
-            ) ,
-            array(
-                'hasuserlinks' => $livelogstitle,
-                'title' => $livelogstitle,
-                'url' => $livelogslink
-            ) ,
-            array(
-                'hasuserlinks' => $participationtitle,
-                'title' => $participationtitle,
-                'url' => $participationlink
-            ) ,
-            array(
-                'hasuserlinks' => $activitytitle,
-                'title' => $activitytitle,
-                'url' => $activitylink
-            ) ,
-            array(
-                'hasqbanklinks' => $qbanktitle,
-                'title' => $qbanktitle,
-                'url' => $qbanklink
-            ) ,
-            array(
-                'hasqbanklinks' => $qcattitle,
-                'title' => $qcattitle,
-                'url' => $qcatlink
-            ) ,
-            array(
-                'hasqbanklinks' => $qimporttitle,
-                'title' => $qimporttitle,
-                'url' => $qimportlink
-            ) ,
-            array(
-                'hasqbanklinks' => $qexporttitle,
-                'title' => $qexporttitle,
-                'url' => $qexportlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $courseedittitle,
-                'title' => $courseedittitle,
-                'url' => $courseeditlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $coursecompletiontitle,
-                'title' => $coursecompletiontitle,
-                'url' => $coursecompletionlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $hascompetency,
-                'title' => $competencytitle,
-                'url' => $competencyurl
-            ) ,
-            array(
-                'hascoursemanagelinks' => $courseadmintitle,
-                'title' => $courseadmintitle,
-                'url' => $courseadminlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $courseresettitle,
-                'title' => $courseresettitle,
-                'url' => $courseresetlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $coursebackuptitle,
-                'title' => $coursebackuptitle,
-                'url' => $coursebackuplink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $courserestoretitle,
-                'title' => $courserestoretitle,
-                'url' => $courserestorelink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $courseimporttitle,
-                'title' => $courseimporttitle,
-                'url' => $courseimportlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $recyclebintitle,
-                'title' => $recyclebintitle,
-                'url' => $recyclebinlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $filtertitle,
-                'title' => $filtertitle,
-                'url' => $filterlink
-            ) ,
-            array(
-                'hascoursemanagelinks' => $eventmonitoringtitle,
-                'title' => $eventmonitoringtitle,
-                'url' => $eventmonitoringlink
-            ) ,
-            array(
-                'hasbadgelinks' => $badgemanagetitle,
-                'title' => $badgemanagetitle,
-                'url' => $badgemanagelink
-            ) ,
-            array(
-                'hasbadgelinks' => $badgeaddtitle,
-                'title' => $badgeaddtitle,
-                'url' => $badgeaddlink
-            ) ,
-        ) , ];
+            ];
         // Attach easy enrollment links if active.
         if ($globalhaseasyenrollment && $coursehaseasyenrollment) {
             $dashlinks['dashlinks'][] = array(
@@ -1517,12 +1732,14 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $setting = $theme->settings->brandemail;
         return $setting != '' ? $setting : '';
     }
+
     public function logintext_custom() {
         global $PAGE;
         $logintext_custom = '';
         $logintext_custom = (empty($PAGE->theme->settings->fptextboxlogout)) ? false : format_text($PAGE->theme->settings->fptextboxlogout);
         return $logintext_custom;
     }
+
     public function render_login(\core_auth\output\login $form) {
         global $SITE, $PAGE;
         $context = $form->export_for_template($this);
@@ -1535,8 +1752,9 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $context->logintopimage = $PAGE->theme->setting_file_url('logintopimage', 'logintopimage');
         $context->hascustomlogin = $PAGE->theme->settings->showcustomlogin == 1;
         $context->hasdefaultlogin = $PAGE->theme->settings->showcustomlogin == 0;
-        $context->alertbox = $PAGE->theme->settings->alertbox;
-        
+        $context->alertbox = format_text($PAGE->theme->settings->alertbox, FORMAT_HTML, array(
+            'noclean' => true
+        ));
         if ($url) {
             $url = $url->out(false);
         }
@@ -1557,7 +1775,13 @@ class core_renderer extends \theme_boost\output\core_renderer {
 
     public function display_ilearn_secure_alert() {
         global $DB, $PAGE;
+
+        if (strpos($PAGE->url, '/mod/quiz/view.php') === false) {
+            return false;
+        }
+
         $cm = $PAGE->cm;
+
         if ($cm) {
             $quiz = $DB->get_record('quiz', array(
                 'id' => $cm->instance
@@ -1604,5 +1828,3 @@ class core_renderer extends \theme_boost\output\core_renderer {
     }
 
 }
-
-
